@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Visualization</title>
+
+    <!-- Bootstrap for better UI -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Bokeh Resources -->
+    {{ js_resources|safe }}
+    {{ css_resources|safe }}
+
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            max-width: 1200px;
+            margin-top: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .form-control, .btn {
+            border-radius: 8px;
+        }
+        .plot-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 class="text-center mb-4">📊 Data Visualization Tool</h2>
+
+    <!-- File Upload Form -->
+    <form action="/upload" method="POST" enctype="multipart/form-data" class="mb-3">
+        <div class="input-group">
+            <input type="file" name="file" class="form-control" required>
+            <button type="submit" class="btn btn-primary">Upload</button>
+        </div>
+    </form>
+
+    <!-- File Selection Dropdown -->
+    <form action="/" method="POST" class="mb-3">
+        <div class="input-group">
+            <select name="file_select" class="form-select" required>
+                <option value="" disabled selected>Select a File</option>
+                {% for file in files %}
+                    <option value="{{ file }}" {% if selected_file == file %}selected{% endif %}>{{ file }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-success">Load Data</button>
+        </div>
+    </form>
+
+    <!-- Show Selected File -->
+    {% if selected_file %}
+        <div class="alert alert-info text-center">
+            <strong>Selected File:</strong> {{ selected_file }}
+        </div>
+    {% endif %}
+
+    <!-- Bokeh Plots -->
+    <div class="plot-container">
+        {{ plot_script|safe }}
+        {{ plot_div|safe }}
+    </div>
+</div>
+
+</body>
+</html>
