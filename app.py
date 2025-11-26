@@ -6,8 +6,9 @@ from werkzeug.utils import secure_filename
 from bokeh.plotting import figure
 from bokeh.embed import components
 from bokeh.resources import INLINE
-from bokeh.models import Span, ColumnDataSource, FreehandDrawTool, MultiLine, Button, CustomJS
+from bokeh.models import Span, ColumnDataSource, FreehandDrawTool, MultiLine, Button, CustomJS, HoverTool, Select, Toggle
 from bokeh.layouts import column, row
+from stereonet_plot import create_stereonet_plot
 
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
@@ -66,65 +67,199 @@ def index():
         kmean_values = df["Mean_sus"] * 10**6  # Convert Mean Susc to *10^6
 
         # ColumnDataSource for FreehandDrawTool
-        source = ColumnDataSource(data=dict(xs=[], ys=[]))
+        scatter_source = ColumnDataSource(data=dict(
+            P=df["P"],
+            T=df["T"],
+            Mean_sus=df["Mean_sus"] * 10**6
+        ))
 
-        # **Graph 1: P vs T**
-        p1 = figure(title=f"P vs T",
-                    x_axis_label='P',
-                    y_axis_label='T',
-                    width=400,
-                    height=400,
-                    tools="pan,box_zoom,zoom_in,zoom_out,reset,save,hover,tap,box_select,undo,redo")
+        # Create data dictionary for plot options
+        plot_data = {
+            'P': df['P'],
+            'T': df['T'],
+            'Mean_sus': df['Mean_sus'] * 10**6,
+            'K1/K2': df['k1']/df['k2'],
+            'K2/K3': df['k2']/df['k3'],
+            'Kmean': df['Kmean']
+        }
 
-        p1.scatter(x=df["P"], y=df["T"], color="cyan", size=14, marker="diamond", line_color="black")
-        p1.multi_line(xs='xs', ys='ys', source=source, line_width=2, line_color='blue')
-        hline = Span(location=0, dimension='width', line_color='black', line_dash='dashed', line_width=1)
-        p1.add_layout(hline)
-        freehand_tool = FreehandDrawTool(renderers=[p1.renderers[-1]])
-        p1.add_tools(freehand_tool)
-        p1.toolbar.active_drag = freehand_tool
+        # Add all data to scatter source
+        for key, value in plot_data.items():
+            scatter_source.add(value, key)
 
-        # **Graph 2: N vs Mean Susc. (Histogram)**
-        hist, edges = np.histogram(kmean_values, bins=6)
-        p2 = figure(title="N vs Mean Susc.",
-                    x_axis_label="Mean Susc * 10^6",
-                    y_axis_label="N",
-                    width=400,
-                    height=400,
-                    tools="pan,box_zoom,zoom_in,zoom_out,reset,save,hover,tap,box_select,undo,redo")
+        # Create dropdown menus
+        x_select = Select(
+            title="X-Axis:",
+            value="P",
+            options=sorted(list(plot_data.keys()))
+        )
 
-        p2.quad(top=hist, bottom=0, left=edges[:-1], right=edges[1:], fill_color="purple", line_color="black", alpha=0.8)
-        p2.multi_line(xs='xs', ys='ys', source=source, line_width=2, line_color='blue')
-        freehand_tool2 = FreehandDrawTool(renderers=[p2.renderers[-1]])
-        p2.add_tools(freehand_tool2)
-        p2.toolbar.active_drag = freehand_tool2
+        y_select = Select(
+            title="Y-Axis:",
+            value="T",
+            options=sorted(list(plot_data.keys()))
+        )
 
-        # **Graph 3: P vs Mean Susc.**
-        p3 = figure(title="P vs Mean Susc.",
-                    x_axis_label='Mean Susc. x 10^6',
-                    y_axis_label='P',
-                    width=400,
-                    height=400,
-                    tools="pan,box_zoom,zoom_in,zoom_out,reset,save,hover,tap,box_select,undo,redo")
+        # Create unified plot
+        p = figure(
+            title="Interactive Plot",
+            width=800,
+            height=600,
+            tools="pan,box_zoom,zoom_in,zoom_out,reset,save,tap,box_select,undo,redo"
+        )
 
-        p3.scatter(x=kmean_values, y=df['P'], color='cyan', size=14, marker="diamond", line_color='black')
-        p3.multi_line(xs='xs', ys='ys', source=source, line_width=2, line_color='blue')
-        p3.y_range.start = 1
-        p3.y_range.end = 1.5
-        freehand_tool3 = FreehandDrawTool(renderers=[p3.renderers[-1]])
-        p3.add_tools(freehand_tool3)
-        p3.toolbar.active_drag = freehand_tool3
+        # Add scatter plot
+        scatter = p.scatter(
+            x=x_select.value,
+            y=y_select.value,
+            source=scatter_source,
+            color='cyan',
+            size=14,
+            marker="diamond",
+            line_color='black'
+        )
 
-        # **Clear Button**
-        clear_button = Button(label="Clear Drawings", button_type="danger")
-        clear_callback = CustomJS(args=dict(source=source), code="""
-            source.data = {xs: [], ys: []};  // Clear the data in the source
-            source.change.emit();  // Notify Bokeh to update the plot
+        # Add freehand drawing
+        source_draw = ColumnDataSource(data=dict(xs=[], ys=[]))
+        p.multi_line(xs='xs', ys='ys', source=source_draw, line_width=2, line_color='blue')
+        freehand_tool = FreehandDrawTool(renderers=[p.renderers[-1]])
+        p.add_tools(freehand_tool)
+        p.toolbar.active_drag = freehand_tool
+
+        # Add hover tool
+        hover = HoverTool(
+            tooltips=[
+                ("X", f"@{x_select.value}{{0.000}}"),
+                ("Y", f"@{y_select.value}{{0.000}}")
+            ],
+            mode='mouse'
+        )
+        p.add_tools(hover)
+
+        # Add clear button
+        clear_button = Button(label="Clear Drawing", button_type="danger")
+        clear_callback = CustomJS(args=dict(source=source_draw), code="""
+            source.data = {xs: [], ys: []};
+            source.change.emit();
         """)
         clear_button.js_on_click(clear_callback)
 
-        # **Arrange plots in rows and columns**
-        layout = column(row(p1, p2), row(p3), clear_button)
+        # Add axis update callback
+        callback = CustomJS(args=dict(
+            plot=p,
+            scatter=scatter,
+            source=scatter_source,
+            x_select=x_select,
+            y_select=y_select,
+            hover=hover
+        ), code="""
+            // Update scatter plot
+            scatter.glyph.x = {field: x_select.value};
+            scatter.glyph.y = {field: y_select.value};
+            
+            // Update axis labels
+            plot.xaxis.axis_label = x_select.value;
+            plot.yaxis.axis_label = y_select.value;
+            
+            // Update hover tooltips
+            hover.tooltips = [
+                ["X", "@" + x_select.value + "{0.000}"],
+                ["Y", "@" + y_select.value + "{0.000}"]
+            ];
+            const selected = source.selected.indices;
+            source.selected.indices = [];
+            source.change.emit();
+            setTimeout(() => {
+                source.selected.indices = selected;
+                source.change.emit();
+            }, 50);
+ 
+            plot.change.emit();
+        """)
+
+        x_select.js_on_change('value', callback)
+        y_select.js_on_change('value', callback)
+
+
+
+
+
+
+
+
+
+
+
+        # --------- Selection Buttons (8 Toggle Buttons) ---------
+        # buttons = [Button(label=f"Point {i+1}", button_type="default") for i in range(8)]
+
+        # # JS Callback to highlight selected points
+        # callback_code = """
+        # var selected = source.selected.indices;
+        # for (var i = 0; i < buttons.length; i++) {
+        #     if (selected.includes(i)) {
+        #         buttons[i].button_type = "success";
+        #     } else {
+        #         buttons[i].button_type = "default";
+        #     }
+        # }
+        # """
+        # scatter_source.selected.js_on_change("indices", CustomJS(args=dict(source=scatter_source, buttons=buttons), code=callback_code))
+
+        # for i, button in enumerate(buttons):
+        #     button.js_on_click(CustomJS(args=dict(source=scatter_source, index=i, button=button), code="""
+        #         var selected = source.selected.indices;
+        #         if (selected.includes(index)) {
+        #             source.selected.indices = selected.filter(item => item !== index);
+        #             button.button_type = "default";
+        #         } else {
+        #             selected.push(index);
+        #             source.selected.indices = selected;
+        #             button.button_type = "success";
+        #         }
+        #         source.change.emit();
+        #     """))
+
+        buttons = [Toggle(label=f"Point {i+1}", button_type="default", active=False) for i in range(8)]                  
+        for i, button in enumerate(buttons):
+            button.js_on_click(CustomJS(args=dict(source=scatter_source, index=i, button=button), code="""
+                let selected = source.selected.indices.slice();  // Copy current selection
+                const i = index;
+
+                if (button.active) {
+                    if (!selected.includes(i)) {
+                        selected.push(i);
+                    }
+                    button.button_type = "success";
+                } else {
+                    selected = selected.filter(j => j !== i);
+                    button.button_type = "default";
+                }
+
+                source.selected.indices = selected;
+                source.change.emit();
+            """))
+
+        # JS Callback: Plot selection → Sync button states
+        sync_callback = CustomJS(args=dict(source=scatter_source, buttons=buttons), code="""
+            const selected = source.selected.indices;
+            for (let i = 0; i < buttons.length; i++) {
+                const isSelected = selected.includes(i);
+                buttons[i].active = isSelected;
+                buttons[i].button_type = isSelected ? "success" : "default";
+            }
+        """)
+
+        scatter_source.selected.js_on_change("indices", sync_callback)
+
+        # --------- Layout ---------
+        button_row = row(*buttons, sizing_mode="stretch_width")
+        layout = column(
+            button_row,
+            row(x_select, y_select),
+            p,clear_button,
+            sizing_mode="stretch_width"
+        )
 
         # Embed Bokeh plot
         script, div = components(layout)
@@ -142,6 +277,7 @@ def index():
         )
 
     return render_template("index.html", files=files, selected_file=None)
+
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
